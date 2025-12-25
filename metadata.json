@@ -1,0 +1,5 @@
+{
+  "name": "Canvas QTI Quiz Generator",
+  "description": "Transform educational text into Canvas-compatible QTI quizzes instantly using Gemini. Generate multiple-choice questions, review them, and download the importable ZIP package.",
+  "requestFramePermissions": []
+}
