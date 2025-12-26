@@ -7,7 +7,8 @@ export enum Difficulty {
 export enum QuestionType {
   MultipleChoice = "multiple_choice",
   TrueFalse = "true_false",
-  ShortAnswer = "short_answer"
+  ShortAnswer = "short_answer",
+  MultipleSelection = "multiple_selection"
 }
 
 export interface QuizSettings {
@@ -27,7 +28,8 @@ export interface Question {
   type: QuestionType;
   stem: string;
   options: string[]; // For Short Answer, this contains valid correct answers
-  correctIndex: number; // -1 or ignored for Short Answer
+  correctIndex: number; // -1 or ignored for Short Answer; for MultipleSelection, this is the first correct index (use correctIndices instead)
+  correctIndices?: number[]; // For Multiple Selection questions, array of correct option indices
   feedback?: string;
 }
 

@@ -54,6 +54,7 @@ const QuizPreview: React.FC<QuizPreviewProps> = ({ quizData, onReset }) => {
       case QuestionType.MultipleChoice: return <List className="w-3 h-3" />;
       case QuestionType.TrueFalse: return <CheckSquare className="w-3 h-3" />;
       case QuestionType.ShortAnswer: return <HelpCircle className="w-3 h-3" />;
+      case QuestionType.MultipleSelection: return <CheckSquare className="w-3 h-3" />;
       default: return <List className="w-3 h-3" />;
     }
   };
@@ -63,6 +64,7 @@ const QuizPreview: React.FC<QuizPreviewProps> = ({ quizData, onReset }) => {
       case QuestionType.MultipleChoice: return "Multiple Choice";
       case QuestionType.TrueFalse: return "True / False";
       case QuestionType.ShortAnswer: return "Short Answer";
+      case QuestionType.MultipleSelection: return "Multiple Selection";
       default: return "Question";
     }
   };
@@ -145,9 +147,11 @@ const QuizPreview: React.FC<QuizPreviewProps> = ({ quizData, onReset }) => {
                   </div>
                 </div>
               ) : (
-                // Multiple Choice and True/False rendering
+                // Multiple Choice, True/False, and Multiple Selection rendering
                 q.options.map((opt, oIdx) => {
-                  const isCorrect = oIdx === q.correctIndex;
+                  const isCorrect = q.type === QuestionType.MultipleSelection
+                    ? (q.correctIndices && q.correctIndices.includes(oIdx)) || (q.correctIndex === oIdx)
+                    : oIdx === q.correctIndex;
                   return (
                     <div 
                       key={oIdx}
@@ -160,7 +164,11 @@ const QuizPreview: React.FC<QuizPreviewProps> = ({ quizData, onReset }) => {
                         w-5 h-5 rounded-full border flex items-center justify-center text-[10px] font-bold
                         ${isCorrect ? 'border-green-500 text-green-600 bg-white' : 'border-slate-300 text-slate-400'}
                       `}>
-                        {String.fromCharCode(65 + oIdx)}
+                        {q.type === QuestionType.MultipleSelection ? (
+                          <CheckSquare className="w-3 h-3" />
+                        ) : (
+                          String.fromCharCode(65 + oIdx)
+                        )}
                       </div>
                       <span className={isCorrect ? 'text-green-800 font-medium' : 'text-slate-600'}>
                         {opt}

@@ -80,6 +80,7 @@ const generateAssessmentXml = (data: QuizData, quizId: string): string => {
     let qtiMetadataType = "multiple_choice_question";
     if (q.type === QuestionType.TrueFalse) qtiMetadataType = "true_false_question";
     if (q.type === QuestionType.ShortAnswer) qtiMetadataType = "short_answer_question";
+    if (q.type === QuestionType.MultipleSelection) qtiMetadataType = "multiple_answers_question";
 
     // Common metadata block - required for Canvas to recognize question type
     const metadataBlock = `
@@ -133,6 +134,65 @@ const generateAssessmentXml = (data: QuizData, quizId: string): string => {
         <respcondition continue="No">
           <conditionvar>
             ${conditions}
+          </conditionvar>
+          <setvar action="Set" varname="SCORE">100</setvar>
+        </respcondition>
+      </resprocessing>
+      ${feedbackBlock}
+    </item>`;
+    }
+
+    // --- Multiple Selection Question Generation ---
+    // Uses response_lid with rcardinality="Multiple" and multiple correct answers
+    if (q.type === QuestionType.MultipleSelection) {
+      const optionsXml = q.options.map((opt, idx) => {
+        const ident = `opt_${idx}`;
+        return `
+        <response_label ident="${ident}">
+          <material>
+            <mattext texttype="text/plain">${escapeXml(opt)}</mattext>
+          </material>
+        </response_label>`;
+      }).join('');
+
+      // Get correct indices - use correctIndices if available, otherwise fall back to correctIndex
+      const correctIndices = q.correctIndices && q.correctIndices.length > 0 
+        ? q.correctIndices 
+        : (q.correctIndex >= 0 ? [q.correctIndex] : []);
+
+      // Generate conditions for all correct answers
+      // For multiple selection, we need to check that all correct answers are selected
+      // and no incorrect answers are selected
+      const correctIdents = correctIndices.map(idx => `opt_${idx}`);
+      const correctConditions = correctIdents.map(ident => `
+            <varequal respident="response1">${ident}</varequal>`).join('');
+
+      // Calculate score: 100 if all correct answers selected and no incorrect ones
+      // For partial credit, we could use a different scoring approach
+      const allCorrectCondition = correctIdents.length > 0 
+        ? `<and>${correctConditions}</and>`
+        : '';
+
+      return `
+    <item ident="${q.id}" title="${escapeXml(q.stem.substring(0, 50))}...">
+      ${metadataBlock}
+      <presentation>
+        <material>
+          <mattext texttype="text/plain">${escapeXml(q.stem)}</mattext>
+        </material>
+        <response_lid ident="response1" rcardinality="Multiple">
+          <render_choice>
+            ${optionsXml}
+          </render_choice>
+        </response_lid>
+      </presentation>
+      <resprocessing>
+        <outcomes>
+          <decvar maxvalue="100" minvalue="0" varname="SCORE" vartype="Decimal"/>
+        </outcomes>
+        <respcondition continue="No">
+          <conditionvar>
+            ${allCorrectCondition}
           </conditionvar>
           <setvar action="Set" varname="SCORE">100</setvar>
         </respcondition>
