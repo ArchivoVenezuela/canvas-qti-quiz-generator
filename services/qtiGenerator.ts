@@ -73,14 +73,18 @@ const generateManifest = (quizId: string, title: string): string => {
 const generateAssessmentXml = (data: QuizData, quizId: string): string => {
   // Use provided max attempts or default to 1 (unlimited = 0, but 1 is safer for Canvas)
   const maxAttempts = data.maxAttempts !== undefined ? data.maxAttempts : 1;
+  // Get mode from quiz data (default to 'quiz' for backward compatibility)
+  const mode = data.mode || 'quiz';
+  const isSurveyMode = mode === 'survey';
   
   const itemsXml = data.questions.map((q) => {
     
     // Determine Canvas question type metadata - must match Canvas question type names exactly
     let qtiMetadataType = "multiple_choice_question";
-    if (q.type === QuestionType.TrueFalse) qtiMetadataType = "true_false_question";
-    if (q.type === QuestionType.ShortAnswer) qtiMetadataType = "short_answer_question";
-    if (q.type === QuestionType.MultipleSelection) qtiMetadataType = "multiple_answers_question";
+    if (q.type === 'true_false') qtiMetadataType = "true_false_question";
+    if (q.type === 'short_answer') qtiMetadataType = "short_answer_question";
+    if (q.type === 'multiple_select') qtiMetadataType = "multiple_answers_question";
+    if (q.type === 'essay') qtiMetadataType = "essay_question";
 
     // Common metadata block - required for Canvas to recognize question type
     const metadataBlock = `
@@ -101,134 +105,24 @@ const generateAssessmentXml = (data: QuizData, quizId: string): string => {
         </material>
       </itemfeedback>` : '';
 
-    // --- Short Answer Question Generation ---
-    // Uses response_str (text input) instead of response_lid (choice list)
-    if (q.type === QuestionType.ShortAnswer) {
-      // Generate conditions for each accepted answer
-      const conditionsList = q.options.map(ans => `
-        <varequal respident="response1" case="No">${escapeXml(ans)}</varequal>
-      `).join('');
-      
-      // If multiple options, wrap in <or> for "any of these" logic
-      const conditions = q.options.length > 1 
-        ? `<or>${conditionsList}</or>` 
-        : conditionsList;
-
-      return `
-    <item ident="${q.id}" title="${escapeXml(q.stem.substring(0, 50))}...">
-      ${metadataBlock}
-      <presentation>
-        <material>
-          <mattext texttype="text/plain">${escapeXml(q.stem)}</mattext>
-        </material>
-        <response_str ident="response1" rcardinality="Single">
-          <render_fib>
-            <response_label ident="answer1" rshuffle="No"/>
-          </render_fib>
-        </response_str>
-      </presentation>
-      <resprocessing>
-        <outcomes>
-          <decvar maxvalue="100" minvalue="0" varname="SCORE" vartype="Decimal"/>
-        </outcomes>
-        <respcondition continue="No">
-          <conditionvar>
-            ${conditions}
-          </conditionvar>
-          <setvar action="Set" varname="SCORE">100</setvar>
-        </respcondition>
-      </resprocessing>
-      ${feedbackBlock}
-    </item>`;
-    }
-
-    // --- Multiple Selection Question Generation ---
-    // Uses response_lid with rcardinality="Multiple" and multiple correct answers
-    if (q.type === QuestionType.MultipleSelection) {
-      const optionsXml = q.options.map((opt, idx) => {
-        const ident = `opt_${idx}`;
-        return `
+    // Generate question XML based on type using switch statement
+    switch (q.type) {
+      case 'multiple_choice': {
+        const optionsXml = q.options.map((opt, idx) => {
+          const ident = `opt_${idx}`;
+          return `
         <response_label ident="${ident}">
           <material>
             <mattext texttype="text/plain">${escapeXml(opt)}</mattext>
           </material>
         </response_label>`;
-      }).join('');
+        }).join('');
 
-      // Get correct indices - use correctIndices if available, otherwise fall back to correctIndex
-      const correctIndices = q.correctIndices && q.correctIndices.length > 0 
-        ? q.correctIndices 
-        : (q.correctIndex >= 0 ? [q.correctIndex] : []);
-
-      // Generate conditions for all correct answers
-      // For multiple selection, we need to check that all correct answers are selected
-      // and no incorrect answers are selected
-      const correctIdents = correctIndices.map(idx => `opt_${idx}`);
-      const correctConditions = correctIdents.map(ident => `
-            <varequal respident="response1">${ident}</varequal>`).join('');
-
-      // Calculate score: 100 if all correct answers selected and no incorrect ones
-      // For partial credit, we could use a different scoring approach
-      const allCorrectCondition = correctIdents.length > 0 
-        ? `<and>${correctConditions}</and>`
-        : '';
-
-      return `
-    <item ident="${q.id}" title="${escapeXml(q.stem.substring(0, 50))}...">
-      ${metadataBlock}
-      <presentation>
-        <material>
-          <mattext texttype="text/plain">${escapeXml(q.stem)}</mattext>
-        </material>
-        <response_lid ident="response1" rcardinality="Multiple">
-          <render_choice>
-            ${optionsXml}
-          </render_choice>
-        </response_lid>
-      </presentation>
-      <resprocessing>
-        <outcomes>
-          <decvar maxvalue="100" minvalue="0" varname="SCORE" vartype="Decimal"/>
-        </outcomes>
-        <respcondition continue="No">
-          <conditionvar>
-            ${allCorrectCondition}
-          </conditionvar>
-          <setvar action="Set" varname="SCORE">100</setvar>
-        </respcondition>
-      </resprocessing>
-      ${feedbackBlock}
-    </item>`;
-    }
-
-    // --- Multiple Choice & True/False Question Generation ---
-    // Both use response_lid (list of choices) - the difference is in metadata and option count
-    
-    const optionsXml = q.options.map((opt, idx) => {
-      const ident = `opt_${idx}`;
-      return `
-        <response_label ident="${ident}">
-          <material>
-            <mattext texttype="text/plain">${escapeXml(opt)}</mattext>
-          </material>
-        </response_label>`;
-    }).join('');
-
-    const correctIdent = `opt_${q.correctIndex}`;
-
-    return `
-    <item ident="${q.id}" title="${escapeXml(q.stem.substring(0, 50))}...">
-      ${metadataBlock}
-      <presentation>
-        <material>
-          <mattext texttype="text/plain">${escapeXml(q.stem)}</mattext>
-        </material>
-        <response_lid ident="response1" rcardinality="Single">
-          <render_choice>
-            ${optionsXml}
-          </render_choice>
-        </response_lid>
-      </presentation>
+        // In survey mode, never include resprocessing (ungraded)
+        // In quiz mode, include resprocessing if correct answer exists
+        const correctAnswer = q.correctAnswer !== undefined ? q.correctAnswer : 0;
+        const correctIdent = `opt_${correctAnswer}`;
+        const resprocessingBlock = !isSurveyMode && correctAnswer >= 0 && correctAnswer < q.options.length ? `
       <resprocessing>
         <outcomes>
           <decvar maxvalue="100" minvalue="0" varname="SCORE" vartype="Decimal"/>
@@ -239,9 +133,237 @@ const generateAssessmentXml = (data: QuizData, quizId: string): string => {
           </conditionvar>
           <setvar action="Set" varname="SCORE">100</setvar>
         </respcondition>
-      </resprocessing>
+      </resprocessing>` : '';
+
+        return `
+    <item ident="${q.id}" title="${escapeXml(q.prompt.substring(0, 50))}...">
+      ${metadataBlock}
+      <presentation>
+        <material>
+          <mattext texttype="text/plain">${escapeXml(q.prompt)}</mattext>
+        </material>
+        <response_lid ident="response1" rcardinality="Single">
+          <render_choice>
+            ${optionsXml}
+          </render_choice>
+        </response_lid>
+      </presentation>
+      ${resprocessingBlock}
       ${feedbackBlock}
     </item>`;
+      }
+
+      case 'multiple_select': {
+        const optionsXml = q.options.map((opt, idx) => {
+          const ident = `opt_${idx}`;
+          return `
+        <response_label ident="${ident}">
+          <material>
+            <mattext texttype="text/plain">${escapeXml(opt)}</mattext>
+          </material>
+        </response_label>`;
+        }).join('');
+
+        // Get correct indices from correctAnswers array
+        const correctIndices = q.correctAnswers && q.correctAnswers.length > 0 
+          ? q.correctAnswers 
+          : [];
+
+        // Generate conditions for all correct answers
+        const correctIdents = correctIndices.map(idx => `opt_${idx}`);
+        const correctConditions = correctIdents.map(ident => `
+            <varequal respident="response1">${ident}</varequal>`).join('');
+
+        // In survey mode, never include resprocessing (ungraded)
+        // In quiz mode, include resprocessing if there are correct answers
+        const allCorrectCondition = correctIdents.length > 0 
+          ? `<and>${correctConditions}</and>`
+          : '';
+        
+        const resprocessingBlock = !isSurveyMode && allCorrectCondition ? `
+      <resprocessing>
+        <outcomes>
+          <decvar maxvalue="100" minvalue="0" varname="SCORE" vartype="Decimal"/>
+        </outcomes>
+        <respcondition continue="No">
+          <conditionvar>
+            ${allCorrectCondition}
+          </conditionvar>
+          <setvar action="Set" varname="SCORE">100</setvar>
+        </respcondition>
+      </resprocessing>` : '';
+
+        return `
+    <item ident="${q.id}" title="${escapeXml(q.prompt.substring(0, 50))}...">
+      ${metadataBlock}
+      <presentation>
+        <material>
+          <mattext texttype="text/plain">${escapeXml(q.prompt)}</mattext>
+        </material>
+        <response_lid ident="response1" rcardinality="Multiple">
+          <render_choice>
+            ${optionsXml}
+          </render_choice>
+        </response_lid>
+      </presentation>
+      ${resprocessingBlock}
+      ${feedbackBlock}
+    </item>`;
+      }
+
+      case 'true_false': {
+        // True/False uses response_lid with two options (True, False)
+        const options = ['True', 'False'];
+        const correctAnswer = q.correctAnswer !== undefined ? (q.correctAnswer ? 0 : 1) : 0;
+        const correctIdent = `opt_${correctAnswer}`;
+        
+        const optionsXml = options.map((opt, idx) => {
+          const ident = `opt_${idx}`;
+          return `
+        <response_label ident="${ident}">
+          <material>
+            <mattext texttype="text/plain">${escapeXml(opt)}</mattext>
+          </material>
+        </response_label>`;
+        }).join('');
+
+        // In survey mode, never include resprocessing (ungraded)
+        // In quiz mode, always include resprocessing for true/false
+        const resprocessingBlock = !isSurveyMode ? `
+      <resprocessing>
+        <outcomes>
+          <decvar maxvalue="100" minvalue="0" varname="SCORE" vartype="Decimal"/>
+        </outcomes>
+        <respcondition continue="No">
+          <conditionvar>
+            <varequal respident="response1">${correctIdent}</varequal>
+          </conditionvar>
+          <setvar action="Set" varname="SCORE">100</setvar>
+        </respcondition>
+      </resprocessing>` : '';
+
+        return `
+    <item ident="${q.id}" title="${escapeXml(q.prompt.substring(0, 50))}...">
+      ${metadataBlock}
+      <presentation>
+        <material>
+          <mattext texttype="text/plain">${escapeXml(q.prompt)}</mattext>
+        </material>
+        <response_lid ident="response1" rcardinality="Single">
+          <render_choice>
+            ${optionsXml}
+          </render_choice>
+        </response_lid>
+      </presentation>
+      ${resprocessingBlock}
+      ${feedbackBlock}
+    </item>`;
+      }
+
+      case 'short_answer': {
+        // In survey mode, never include resprocessing (ungraded)
+        // In quiz mode, include resprocessing if correctAnswer exists
+        const acceptableAnswers = q.correctAnswer 
+          ? (Array.isArray(q.correctAnswer) ? q.correctAnswer : [q.correctAnswer])
+          : [];
+        
+        // Generate conditions for each accepted answer (only if answers exist and not in survey mode)
+        let resprocessingBlock = '';
+        if (!isSurveyMode && acceptableAnswers.length > 0) {
+          const conditionsList = acceptableAnswers.map(ans => `
+        <varequal respident="response1" case="No">${escapeXml(String(ans))}</varequal>
+      `).join('');
+          
+          // If multiple options, wrap in <or> for "any of these" logic
+          const conditions = acceptableAnswers.length > 1 
+            ? `<or>${conditionsList}</or>` 
+            : conditionsList;
+
+          resprocessingBlock = `
+      <resprocessing>
+        <outcomes>
+          <decvar maxvalue="100" minvalue="0" varname="SCORE" vartype="Decimal"/>
+        </outcomes>
+        <respcondition continue="No">
+          <conditionvar>
+            ${conditions}
+          </conditionvar>
+          <setvar action="Set" varname="SCORE">100</setvar>
+        </respcondition>
+      </resprocessing>`;
+        }
+
+        return `
+    <item ident="${q.id}" title="${escapeXml(q.prompt.substring(0, 50))}...">
+      ${metadataBlock}
+      <presentation>
+        <material>
+          <mattext texttype="text/plain">${escapeXml(q.prompt)}</mattext>
+        </material>
+        <response_str ident="response1" rcardinality="Single">
+          <render_fib>
+            <response_label ident="answer1" rshuffle="No"/>
+          </render_fib>
+        </response_str>
+      </presentation>
+      ${resprocessingBlock}
+      ${feedbackBlock}
+    </item>`;
+      }
+
+      case 'essay': {
+        // Essay uses response_str but NO resprocessing (manual grading required)
+        return `
+    <item ident="${q.id}" title="${escapeXml(q.prompt.substring(0, 50))}...">
+      ${metadataBlock}
+      <presentation>
+        <material>
+          <mattext texttype="text/plain">${escapeXml(q.prompt)}</mattext>
+        </material>
+        <response_str ident="response1" rcardinality="Single">
+          <render_fib>
+            <response_label ident="answer1" rshuffle="No"/>
+          </render_fib>
+        </response_str>
+      </presentation>
+      ${feedbackBlock}
+    </item>`;
+      }
+
+      default: {
+        // Fallback for unknown types (treat as multiple choice)
+        // TypeScript narrowing: at this point q is still a Question, just with unknown type
+        const fallbackQuestion = q as { id: string; prompt: string; options?: string[] };
+        const fallbackOptions = (fallbackQuestion.options && fallbackQuestion.options.length > 0) 
+          ? fallbackQuestion.options 
+          : ['Option A', 'Option B'];
+        const fallbackOptionsXml = fallbackOptions.map((opt, idx) => {
+          const ident = `opt_${idx}`;
+          return `
+        <response_label ident="${ident}">
+          <material>
+            <mattext texttype="text/plain">${escapeXml(opt)}</mattext>
+          </material>
+        </response_label>`;
+        }).join('');
+
+        return `
+    <item ident="${fallbackQuestion.id}" title="${escapeXml(fallbackQuestion.prompt.substring(0, 50))}...">
+      ${metadataBlock}
+      <presentation>
+        <material>
+          <mattext texttype="text/plain">${escapeXml(fallbackQuestion.prompt)}</mattext>
+        </material>
+        <response_lid ident="response1" rcardinality="Single">
+          <render_choice>
+            ${fallbackOptionsXml}
+          </render_choice>
+        </response_lid>
+      </presentation>
+      ${feedbackBlock}
+    </item>`;
+      }
+    }
   }).join('\n');
 
   return `<?xml version="1.0" encoding="UTF-8"?>

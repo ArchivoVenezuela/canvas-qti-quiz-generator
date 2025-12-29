@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { QuizSettings, Difficulty, QuestionType } from '../types';
-import { Settings, AlignLeft, Sliders, Type as TypeIcon, CheckSquare, List, HelpCircle, ChevronDown, ChevronUp, ClipboardCopy, Info } from 'lucide-react';
+import { Settings, AlignLeft, Sliders, Type as TypeIcon, CheckSquare, List, HelpCircle, ChevronDown, ChevronUp, ClipboardCopy, Info, FileText } from 'lucide-react';
 
 interface QuizFormProps {
   onSubmit: (settings: QuizSettings) => void;
@@ -39,9 +39,10 @@ const QuizForm: React.FC<QuizFormProps> = ({ onSubmit, isGenerating }) => {
   const [topic, setTopic] = useState('');
   const [maxAttempts, setMaxAttempts] = useState<number>(1);
   const [showFormatHelp, setShowFormatHelp] = useState(false);
+  const [mode, setMode] = useState<'survey' | 'quiz'>('quiz'); // Default to quiz for backward compatibility
   
   const [selectedTypes, setSelectedTypes] = useState<QuestionType[]>([
-    QuestionType.MultipleChoice
+    'multiple_choice'
   ]);
 
   const handleTypeToggle = (type: QuestionType) => {
@@ -66,6 +67,7 @@ const QuizForm: React.FC<QuizFormProps> = ({ onSubmit, isGenerating }) => {
     // Source text is optional - if empty, we'll generate templates
     
     onSubmit({
+      mode,
       sourceText,
       questionCount,
       difficulty,
@@ -192,6 +194,40 @@ const QuizForm: React.FC<QuizFormProps> = ({ onSubmit, isGenerating }) => {
             </h3>
             
             <div>
+              <label className="block text-xs font-medium text-slate-600 mb-1">Quiz Mode</label>
+              <div className="space-y-2">
+                <label className="flex items-center space-x-2 cursor-pointer p-3 rounded-md border border-slate-200 hover:bg-slate-50 transition-colors">
+                  <input
+                    type="radio"
+                    name="mode"
+                    value="quiz"
+                    checked={mode === 'quiz'}
+                    onChange={(e) => setMode(e.target.value as 'survey' | 'quiz')}
+                    className="w-4 h-4 text-indigo-600 border-slate-300 focus:ring-indigo-500"
+                  />
+                  <div className="flex-1">
+                    <span className="text-sm font-medium text-slate-700">Quiz (Graded)</span>
+                    <p className="text-xs text-slate-500">Auto-grading enabled with correct answers</p>
+                  </div>
+                </label>
+                <label className="flex items-center space-x-2 cursor-pointer p-3 rounded-md border border-slate-200 hover:bg-slate-50 transition-colors">
+                  <input
+                    type="radio"
+                    name="mode"
+                    value="survey"
+                    checked={mode === 'survey'}
+                    onChange={(e) => setMode(e.target.value as 'survey' | 'quiz')}
+                    className="w-4 h-4 text-indigo-600 border-slate-300 focus:ring-indigo-500"
+                  />
+                  <div className="flex-1">
+                    <span className="text-sm font-medium text-slate-700">Survey (Ungraded)</span>
+                    <p className="text-xs text-slate-500">Collects responses but does not grade them</p>
+                  </div>
+                </label>
+              </div>
+            </div>
+            
+            <div>
               <label className="block text-xs font-medium text-slate-600 mb-1">Topic / Title (Optional)</label>
               <input
                 type="text"
@@ -255,8 +291,8 @@ const QuizForm: React.FC<QuizFormProps> = ({ onSubmit, isGenerating }) => {
                 <label className="flex items-center space-x-2 cursor-pointer p-2 rounded-md border border-slate-200 hover:bg-slate-50 transition-colors">
                   <input
                     type="checkbox"
-                    checked={selectedTypes.includes(QuestionType.MultipleChoice)}
-                    onChange={() => handleTypeToggle(QuestionType.MultipleChoice)}
+                    checked={selectedTypes.includes('multiple_choice')}
+                    onChange={() => handleTypeToggle('multiple_choice')}
                     className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
                   />
                   <List className="w-4 h-4 text-slate-500" />
@@ -266,8 +302,8 @@ const QuizForm: React.FC<QuizFormProps> = ({ onSubmit, isGenerating }) => {
                 <label className="flex items-center space-x-2 cursor-pointer p-2 rounded-md border border-slate-200 hover:bg-slate-50 transition-colors">
                   <input
                     type="checkbox"
-                    checked={selectedTypes.includes(QuestionType.TrueFalse)}
-                    onChange={() => handleTypeToggle(QuestionType.TrueFalse)}
+                    checked={selectedTypes.includes('true_false')}
+                    onChange={() => handleTypeToggle('true_false')}
                     className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
                   />
                   <CheckSquare className="w-4 h-4 text-slate-500" />
@@ -277,12 +313,34 @@ const QuizForm: React.FC<QuizFormProps> = ({ onSubmit, isGenerating }) => {
                 <label className="flex items-center space-x-2 cursor-pointer p-2 rounded-md border border-slate-200 hover:bg-slate-50 transition-colors">
                   <input
                     type="checkbox"
-                    checked={selectedTypes.includes(QuestionType.ShortAnswer)}
-                    onChange={() => handleTypeToggle(QuestionType.ShortAnswer)}
+                    checked={selectedTypes.includes('short_answer')}
+                    onChange={() => handleTypeToggle('short_answer')}
                     className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
                   />
                   <HelpCircle className="w-4 h-4 text-slate-500" />
                   <span className="text-sm text-slate-700">Short Answer (Fill-in-Blank)</span>
+                </label>
+
+                <label className="flex items-center space-x-2 cursor-pointer p-2 rounded-md border border-slate-200 hover:bg-slate-50 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={selectedTypes.includes('multiple_select')}
+                    onChange={() => handleTypeToggle('multiple_select')}
+                    className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+                  />
+                  <CheckSquare className="w-4 h-4 text-slate-500" />
+                  <span className="text-sm text-slate-700">Multiple Select (Checkboxes)</span>
+                </label>
+
+                <label className="flex items-center space-x-2 cursor-pointer p-2 rounded-md border border-slate-200 hover:bg-slate-50 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={selectedTypes.includes('essay')}
+                    onChange={() => handleTypeToggle('essay')}
+                    className="w-4 h-4 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+                  />
+                  <FileText className="w-4 h-4 text-slate-500" />
+                  <span className="text-sm text-slate-700">Essay / Text (Manual Grading)</span>
                 </label>
               </div>
             </div>

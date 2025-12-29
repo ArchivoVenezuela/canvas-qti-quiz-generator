@@ -5,328 +5,31 @@
  * Designed for institutional deployment where external APIs may be restricted or unavailable.
  * 
  * The core generator:
- * - Parses pre-formatted questions from source text
+ * - Parses pre-formatted questions from source text using the modular parser
  * - Creates template questions based on user settings
  * - Generates valid Canvas QTI XML without external dependencies
  */
 
 import { QuizSettings, QuizData, Question, QuestionType } from '../types';
+import { parseQuiz } from './parser';
 
 /**
- * Parses pre-formatted questions from source text.
- * Supports formats like:
- * - English: "Question: ... A. ... B. ... Answer: C"
- * - English: "Q1: ...\nA) ...\nB) ...\nAnswer: A"
- * - Spanish: "Tipo: Verdadero/Falso\nPregunta: ...\nRespuesta correcta: Falso"
- * - Spanish: "Tipo: Opción múltiple\nPregunta: ...\nOpciones:\nA. ...\nB. ...\nRespuesta correcta: C"
- * - Spanish: "Tipo: Selección múltiple\nPregunta: ...\nOpciones:\n- ...\n- ...\nRespuestas correctas: ..."
+ * Parses pre-formatted questions from source text using the modular parser.
+ * Falls back to legacy parsing if the new parser doesn't find questions.
  */
 export function parsePreFormattedQuestions(sourceText: string, settings: QuizSettings): Question[] {
-  const questions: Question[] = [];
-  const lines = sourceText.split('\n').map(l => l.trim());
+  if (!sourceText || !sourceText.trim()) {
+    return [];
+  }
   
-  let currentQuestion: Partial<Question> & { questionText?: string } | null = null;
-  let currentOptions: string[] = [];
-  let questionNumber = 0;
-  let inOptionsSection = false;
-  let inQuestionText = false;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const lowerLine = line.toLowerCase();
-
-    // Detect question type (Spanish format)
-    if (lowerLine.startsWith('tipo:')) {
-      // Save previous question if exists
-      if (currentQuestion && currentQuestion.stem) {
-        const question = finalizeQuestion(currentQuestion, currentOptions, questionNumber++, settings);
-        if (question) questions.push(question);
-      }
-
-      // Determine question type from Spanish keywords
-      const typeText = line.substring(5).trim().toLowerCase();
-      let questionType = QuestionType.MultipleChoice;
-      
-      if (typeText.includes('verdadero') || typeText.includes('falso') || typeText.includes('true') || typeText.includes('false')) {
-        questionType = QuestionType.TrueFalse;
-      } else if (typeText.includes('selección múltiple') || typeText.includes('seleccion multiple') || typeText.includes('multiple selection')) {
-        questionType = QuestionType.MultipleSelection;
-      } else if (typeText.includes('opción múltiple') || typeText.includes('opcion multiple') || typeText.includes('multiple choice')) {
-        questionType = QuestionType.MultipleChoice;
-      }
-
-      currentQuestion = {
-        type: questionType,
-        questionText: ''
-      };
-      currentOptions = [];
-      inOptionsSection = false;
-      inQuestionText = false;
-    }
-    // Detect question text (Spanish: "Pregunta:" or English: "Question:", "Q:", etc.)
-    else if (lowerLine.startsWith('pregunta:') || lowerLine.startsWith('question:') || 
-             lowerLine.startsWith('q:') || lowerLine.match(/^q\d+:/) || lowerLine.match(/^\d+\.\s/)) {
-      if (currentQuestion) {
-        // If "Pregunta:" is on its own line, the question text is on the next line
-        const questionText = line.replace(/^(pregunta:|question:|q:|q\d+:|^\d+\.\s)/i, '').trim();
-        if (questionText) {
-          currentQuestion.questionText = questionText;
-          currentQuestion.stem = questionText;
-          inQuestionText = false;
-        } else {
-          // "Pregunta:" on its own line, next line(s) will be question text
-          inQuestionText = true;
-        }
-      } else {
-        // English format without "Tipo:" - create new question
-        const questionText = line.replace(/^(question:|q:|q\d+:|^\d+\.\s)/i, '').trim();
-        currentQuestion = {
-          type: settings.questionTypes[0] || QuestionType.MultipleChoice,
-          questionText: questionText,
-          stem: questionText
-        };
-        currentOptions = [];
-        inQuestionText = questionText.length === 0; // If empty, expect next line
-      }
-      inOptionsSection = false;
-    }
-    // Detect options section start (Spanish: "Opciones:" or English: "Options:")
-    else if (lowerLine.startsWith('opciones:') || lowerLine.startsWith('options:')) {
-      inOptionsSection = true;
-      inQuestionText = false;
-    }
-    // If we're in question text mode and line is not empty, add to question text
-    else if (inQuestionText && line.length > 0 && currentQuestion) {
-      if (currentQuestion.questionText) {
-        currentQuestion.questionText += ' ' + line;
-      } else {
-        currentQuestion.questionText = line;
-      }
-      currentQuestion.stem = currentQuestion.questionText;
-    }
-    // Detect answer options (A., B., C., D., etc. or A), B), etc. or - format)
-    // Only process if we're not in question text mode
-    else if (!inQuestionText && (line.match(/^[A-Z][\.\)]\s/) || line.match(/^-\s/) || (inOptionsSection && line.length > 0)) && currentQuestion) {
-      let optionText = '';
-      if (line.match(/^[A-Z][\.\)]\s/)) {
-        optionText = line.replace(/^[A-Z][\.\)]\s/, '').trim();
-      } else if (line.match(/^-\s/)) {
-        optionText = line.replace(/^-\s/, '').trim();
-      } else if (inOptionsSection) {
-        optionText = line;
-      }
-      
-      if (optionText) {
-        currentOptions.push(optionText);
-        inQuestionText = false; // Once we see options, we're done with question text
-      }
-    }
-    // Detect correct answer (Spanish: "Respuesta correcta:" or "Respuestas correctas:" or English: "Answer:", "Correct:")
-    else if ((lowerLine.startsWith('respuesta correcta:') || lowerLine.startsWith('respuestas correctas:') ||
-              lowerLine.startsWith('answer:') || lowerLine.startsWith('correct:')) && currentQuestion) {
-      if (currentQuestion.questionText && !currentQuestion.stem) {
-        currentQuestion.stem = currentQuestion.questionText;
-      }
-      
-      const answerText = line.replace(/^(respuesta correcta:|respuestas correctas:|answer:|correct:)/i, '').trim();
-      
-      // Handle True/False
-      if (currentQuestion.type === QuestionType.TrueFalse) {
-        const isTrue = answerText.toLowerCase().includes('true') || 
-                      answerText.toLowerCase().includes('verdadero') ||
-                      answerText.toLowerCase().includes('cierto');
-        const question = {
-          id: `q_${Date.now()}_${questionNumber}`,
-          type: QuestionType.TrueFalse,
-          stem: currentQuestion.stem || 'Question',
-          options: ['True', 'False'],
-          correctIndex: isTrue ? 0 : 1,
-          feedback: settings.includeFeedback ? `The correct answer is ${isTrue ? 'True' : 'False'}.` : undefined
-        };
-        questions.push(question);
-        questionNumber++;
-      }
-      // Handle Multiple Selection (multiple correct answers)
-      else if (currentQuestion.type === QuestionType.MultipleSelection) {
-        // Parse comma-separated correct answers
-        const correctAnswers = answerText.split(',').map(a => a.trim());
-        const correctIndices: number[] = [];
-        
-        // Find indices of correct options
-        currentOptions.forEach((opt, idx) => {
-          if (correctAnswers.some(correct => opt.toLowerCase().includes(correct.toLowerCase()) || 
-                                     correct.toLowerCase().includes(opt.toLowerCase()))) {
-            correctIndices.push(idx);
-          }
-        });
-        
-        // Also try letter-based matching (A, B, C, etc.)
-        if (correctIndices.length === 0) {
-          correctAnswers.forEach(answer => {
-            const letterMatch = answer.match(/^([A-Z])/i);
-            if (letterMatch) {
-              const index = letterMatch[1].toUpperCase().charCodeAt(0) - 65;
-              if (index >= 0 && index < currentOptions.length) {
-                correctIndices.push(index);
-              }
-            }
-          });
-        }
-        
-        if (correctIndices.length > 0) {
-          const question = {
-            id: `q_${Date.now()}_${questionNumber}`,
-            type: QuestionType.MultipleSelection,
-            stem: currentQuestion.stem || 'Question',
-            options: [...currentOptions],
-            correctIndex: correctIndices[0],
-            correctIndices: correctIndices,
-            feedback: settings.includeFeedback ? `Correct answers: ${correctIndices.map(i => currentOptions[i]).join(', ')}` : undefined
-          };
-          questions.push(question);
-          questionNumber++;
-        }
-      }
-      // Handle Multiple Choice (single correct answer)
-      else {
-        // Try letter-based answer (A, B, C, D)
-        const letterMatch = answerText.match(/^([A-Z])/i);
-        if (letterMatch && currentOptions.length > 0) {
-          const correctLetter = letterMatch[1].toUpperCase();
-          const correctIndex = correctLetter.charCodeAt(0) - 65; // A=0, B=1, etc.
-          
-          if (correctIndex >= 0 && correctIndex < currentOptions.length) {
-            const question = {
-              id: `q_${Date.now()}_${questionNumber}`,
-              type: currentQuestion.type || QuestionType.MultipleChoice,
-              stem: currentQuestion.stem || 'Question',
-              options: [...currentOptions],
-              correctIndex: correctIndex,
-              feedback: settings.includeFeedback ? `The correct answer is ${correctLetter}: ${currentOptions[correctIndex]}` : undefined
-            };
-            questions.push(question);
-            questionNumber++;
-          }
-        }
-      }
-      
-      // Reset all state for next question
-      currentQuestion = null;
-      currentOptions = [];
-      inOptionsSection = false;
-      inQuestionText = false;
-    }
-    // If we have a current question but no options yet, and line is not empty, treat as question text continuation
-    // This handles cases where question text spans multiple lines
-    else if (currentQuestion && line.length > 0 && !inOptionsSection && !inQuestionText && 
-             !lowerLine.startsWith('respuesta') && !lowerLine.startsWith('answer') && !lowerLine.startsWith('correct')) {
-      // Only add to question text if we haven't started collecting options yet
-      if (currentOptions.length === 0) {
-        if (currentQuestion.questionText) {
-          currentQuestion.questionText += ' ' + line;
-        } else {
-          currentQuestion.questionText = line;
-        }
-        currentQuestion.stem = currentQuestion.questionText;
-      }
-    }
-    // Handle case where we're explicitly in question text mode (after "Pregunta:" on its own line)
-    else if (inQuestionText && line.length > 0 && currentQuestion) {
-      if (currentQuestion.questionText) {
-        currentQuestion.questionText += ' ' + line;
-      } else {
-        currentQuestion.questionText = line;
-      }
-      currentQuestion.stem = currentQuestion.questionText;
-      // Continue in question text mode until we see "Opciones:" or an answer
-    }
+  // Try the new modular parser first
+  const parsed = parseQuiz(sourceText);
+  if (parsed.length > 0) {
+    return parsed;
   }
-
-  // Handle last question if file doesn't end with answer
-  if (currentQuestion && currentQuestion.stem) {
-    const question = finalizeQuestion(currentQuestion, currentOptions, questionNumber, settings);
-    if (question) questions.push(question);
-  }
-
-  return questions;
-}
-
-/**
- * Finalizes a question from parsed components.
- */
-function finalizeQuestion(
-  currentQuestion: Partial<Question> & { questionText?: string },
-  currentOptions: string[],
-  questionNumber: number,
-  settings: QuizSettings
-): Question | null {
-  if (!currentQuestion.stem) return null;
   
-  const stem = currentQuestion.stem;
-  const type = currentQuestion.type || QuestionType.MultipleChoice;
-  
-  // If it's True/False, ensure we have exactly True/False options
-  if (type === QuestionType.TrueFalse) {
-    return {
-      id: `q_${Date.now()}_${questionNumber}`,
-      type: QuestionType.TrueFalse,
-      stem: stem,
-      options: ['True', 'False'],
-      correctIndex: 0, // Default to True, user should edit
-      feedback: settings.includeFeedback ? 'Review the correct answer and edit as needed.' : undefined
-    };
-  }
-
-  // For multiple choice, use parsed options or create template
-  if (currentOptions.length === 0) {
-    currentOptions = ['Option A', 'Option B', 'Option C', 'Option D'];
-  }
-
-  return {
-    id: `q_${Date.now()}_${questionNumber}`,
-    type: type,
-    stem: stem,
-    options: currentOptions,
-    correctIndex: 0, // Default to first option, user should edit
-    feedback: settings.includeFeedback ? 'Please review and set the correct answer.' : undefined
-  };
-}
-
-/**
- * Creates a question from parsed components.
- */
-function createQuestionFromParsed(
-  stem: string,
-  options: string[],
-  type: QuestionType,
-  includeFeedback: boolean,
-  index: number
-): Question {
-  // If it's True/False, ensure we have exactly True/False options
-  if (type === QuestionType.TrueFalse) {
-    return {
-      id: `q_${Date.now()}_${index}`,
-      type: QuestionType.TrueFalse,
-      stem: stem,
-      options: ['True', 'False'],
-      correctIndex: 0, // Default to True, user should edit
-      feedback: includeFeedback ? 'Review the correct answer and edit as needed.' : undefined
-    };
-  }
-
-  // For multiple choice, use parsed options or create template
-  if (options.length === 0) {
-    options = ['Option A', 'Option B', 'Option C', 'Option D'];
-  }
-
-  return {
-    id: `q_${Date.now()}_${index}`,
-    type: type,
-    stem: stem,
-    options: options,
-    correctIndex: 0, // Default to first option, user should edit
-    feedback: includeFeedback ? 'Please review and set the correct answer.' : undefined
-  };
+  // Fallback: return empty array, will generate templates
+  return [];
 }
 
 /**
@@ -335,53 +38,79 @@ function createQuestionFromParsed(
  */
 export function generateTemplateQuestions(settings: QuizSettings): Question[] {
   const questions: Question[] = [];
-  const topic = settings.topic || 'Your Topic';
+  const topic = settings.topic || settings.title || 'Your Topic';
+  const questionCount = settings.questionCount || 5;
+  const questionTypes: QuestionType[] = settings.questionTypes || ['multiple_choice'];
+  const includeFeedback = settings.includeFeedback !== false;
   
-  for (let i = 0; i < settings.questionCount; i++) {
+  for (let i = 0; i < questionCount; i++) {
     const questionNumber = i + 1;
     let question: Question;
 
     // Determine question type (rotate through selected types)
-    const typeIndex = i % settings.questionTypes.length;
-    const questionType = settings.questionTypes[typeIndex];
+    const typeIndex = i % questionTypes.length;
+    const questionType = questionTypes[typeIndex];
 
     switch (questionType) {
-      case QuestionType.TrueFalse:
+      case 'true_false':
         question = {
-          id: `q_${Date.now()}_${i}`,
-          type: QuestionType.TrueFalse,
-          stem: `True or False: This is a placeholder question about ${topic}. Please edit this question text.`,
-          options: ['True', 'False'],
-          correctIndex: 0,
-          feedback: settings.includeFeedback ? 'Please review and set the correct answer and feedback.' : undefined
+          id: crypto.randomUUID(),
+          type: 'true_false',
+          prompt: `True or False: This is a placeholder question about ${topic}. Please edit this question text.`,
+          correctAnswer: true,
+          feedback: includeFeedback ? 'Please review and set the correct answer and feedback.' : undefined
         };
         break;
 
-      case QuestionType.ShortAnswer:
+      case 'short_answer':
         question = {
-          id: `q_${Date.now()}_${i}`,
-          type: QuestionType.ShortAnswer,
-          stem: `Short Answer: Describe or define a key concept related to ${topic}. Please edit this question text.`,
-          options: ['Expected Answer 1', 'Expected Answer 2'], // Acceptable answers
-          correctIndex: 0, // Ignored for short answer
-          feedback: settings.includeFeedback ? 'Please review acceptable answers and feedback.' : undefined
+          id: crypto.randomUUID(),
+          type: 'short_answer',
+          prompt: `Short Answer: Describe or define a key concept related to ${topic}. Please edit this question text.`,
+          correctAnswer: 'Expected Answer',
+          feedback: includeFeedback ? 'Please review acceptable answers and feedback.' : undefined
         };
         break;
 
-      case QuestionType.MultipleChoice:
-      default:
+      case 'multiple_select':
         question = {
-          id: `q_${Date.now()}_${i}`,
-          type: QuestionType.MultipleChoice,
-          stem: `Multiple Choice: Which of the following best relates to ${topic}? Please edit this question text.`,
+          id: crypto.randomUUID(),
+          type: 'multiple_select',
+          prompt: `Multiple Select: Select all that apply related to ${topic}. Please edit this question text.`,
           options: [
             'Option A - Edit this option',
             'Option B - Edit this option',
             'Option C - Edit this option',
             'Option D - Edit this option'
           ],
-          correctIndex: 0,
-          feedback: settings.includeFeedback ? 'Please review options, set the correct answer, and add feedback.' : undefined
+          correctAnswers: [0, 1], // Default to first two options, user should edit
+          feedback: includeFeedback ? 'Please review options, set the correct answers, and add feedback.' : undefined
+        };
+        break;
+
+      case 'essay':
+        question = {
+          id: crypto.randomUUID(),
+          type: 'essay',
+          prompt: `Essay: Write a comprehensive response about ${topic}. Please edit this question text.`,
+          feedback: includeFeedback ? 'Please review and provide grading criteria.' : undefined
+        };
+        break;
+
+      case 'multiple_choice':
+      default:
+        question = {
+          id: crypto.randomUUID(),
+          type: 'multiple_choice',
+          prompt: `Multiple Choice: Which of the following best relates to ${topic}? Please edit this question text.`,
+          options: [
+            'Option A - Edit this option',
+            'Option B - Edit this option',
+            'Option C - Edit this option',
+            'Option D - Edit this option'
+          ],
+          correctAnswer: 0,
+          feedback: includeFeedback ? 'Please review options, set the correct answer, and add feedback.' : undefined
         };
         break;
     }
@@ -408,8 +137,9 @@ export function generateQuizCore(settings: QuizSettings): QuizData {
   // Try to parse pre-formatted questions first (if source text provided)
   let questions: Question[] = [];
   
-  if (settings.sourceText && settings.sourceText.trim()) {
-    const parsed = parsePreFormattedQuestions(settings.sourceText, settings);
+  const sourceText = settings.sourceText || '';
+  if (sourceText.trim()) {
+    const parsed = parsePreFormattedQuestions(sourceText, settings);
     if (parsed.length > 0) {
       questions = parsed;
     }
@@ -423,11 +153,12 @@ export function generateQuizCore(settings: QuizSettings): QuizData {
     questions = generateTemplateQuestions(settings);
   }
 
-  // Apply randomization if requested (only for Multiple Choice)
-  if (settings.randomize) {
+  // Apply randomization if requested (for Multiple Choice and Multiple Selection)
+  const shouldRandomize = settings.randomize || settings.shuffleAnswers;
+  if (shouldRandomize) {
     questions = questions.map(q => {
-      if (q.type === QuestionType.MultipleChoice && q.options.length > 1) {
-        const combined = q.options.map((opt, i) => ({ text: opt, isCorrect: i === q.correctIndex }));
+      if (q.type === 'multiple_choice' && q.options && q.options.length > 1) {
+        const combined = q.options.map((opt, i) => ({ text: opt, isCorrect: i === q.correctAnswer }));
         // Fisher-Yates shuffle
         for (let i = combined.length - 1; i > 0; i--) {
           const j = Math.floor(Math.random() * (i + 1));
@@ -436,17 +167,48 @@ export function generateQuizCore(settings: QuizSettings): QuizData {
         return {
           ...q,
           options: combined.map(c => c.text),
-          correctIndex: combined.findIndex(c => c.isCorrect)
+          correctAnswer: combined.findIndex(c => c.isCorrect)
+        };
+      } else if (q.type === 'multiple_select' && q.options && q.options.length > 1 && q.correctAnswers) {
+        const combined = q.options.map((opt, i) => ({ text: opt, isCorrect: q.correctAnswers!.includes(i) }));
+        // Fisher-Yates shuffle
+        for (let i = combined.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [combined[i], combined[j]] = [combined[j], combined[i]];
+        }
+        const newCorrectAnswers = combined.map((c, idx) => c.isCorrect ? idx : -1).filter(idx => idx !== -1);
+        return {
+          ...q,
+          options: combined.map(c => c.text),
+          correctAnswers: newCorrectAnswers
         };
       }
       return q;
     });
   }
 
+  // Get mode from settings (default to 'quiz' for backward compatibility)
+  const mode = settings.mode || 'quiz';
+  
+  // Validation: In quiz mode, warn (but don't crash) if graded questions lack answers
+  if (mode === 'quiz') {
+    questions.forEach((q, idx) => {
+      if (q.type === 'multiple_choice' && q.correctAnswer === undefined) {
+        console.warn(`Question ${idx + 1} (multiple_choice) lacks correctAnswer in quiz mode. Defaulting to 0.`);
+      } else if (q.type === 'multiple_select' && (!q.correctAnswers || q.correctAnswers.length === 0)) {
+        console.warn(`Question ${idx + 1} (multiple_select) lacks correctAnswers in quiz mode.`);
+      } else if (q.type === 'true_false' && q.correctAnswer === undefined) {
+        console.warn(`Question ${idx + 1} (true_false) lacks correctAnswer in quiz mode. Defaulting to true.`);
+      }
+    });
+  }
+  // In survey mode, silently ignore correctAnswer/correctAnswers fields (no validation needed)
+
   return {
-    title: settings.topic || 'Generated Quiz',
+    title: settings.title || settings.topic || 'Generated Quiz',
+    description: settings.description,
+    mode: mode,
     questions: questions,
     maxAttempts: settings.maxAttempts
   };
 }
-

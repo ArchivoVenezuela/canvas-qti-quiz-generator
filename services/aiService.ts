@@ -119,45 +119,98 @@ class GeminiAIAdapter implements AIEnhancementService {
       if (!text) return null;
 
       const parsedData = JSON.parse(text);
-      const { QuestionType } = await import("../types");
+      const validTypes: string[] = ['multiple_choice', 'true_false', 'multiple_select', 'short_answer', 'essay'];
 
       const questions = parsedData.questions.map((q: any, index: number) => {
         // Validate and map question type
         let qType = q.type;
-        if (!Object.values(QuestionType).includes(qType)) {
-          qType = QuestionType.MultipleChoice;
+        if (!validTypes.includes(qType)) {
+          qType = 'multiple_choice';
         }
         
-        return {
-          id: `q_${Date.now()}_${index}`,
-          type: qType,
-          stem: q.stem,
-          options: q.options,
-          correctIndex: q.correctIndex,
-          feedback: q.feedback
-        };
+        // Map old field names to new ones for backward compatibility
+        const prompt = q.prompt || q.stem || 'Question';
+        const feedback = q.feedback;
+        
+        // Build question based on type
+        if (qType === 'true_false') {
+          return {
+            id: q.id || `q_${Date.now()}_${index}`,
+            type: 'true_false' as const,
+            prompt,
+            correctAnswer: q.correctAnswer !== undefined ? q.correctAnswer : (q.correctIndex === 0),
+            feedback
+          };
+        } else if (qType === 'essay') {
+          return {
+            id: q.id || `q_${Date.now()}_${index}`,
+            type: 'essay' as const,
+            prompt,
+            feedback
+          };
+        } else if (qType === 'short_answer') {
+          return {
+            id: q.id || `q_${Date.now()}_${index}`,
+            type: 'short_answer' as const,
+            prompt,
+            correctAnswer: q.correctAnswer || (q.options && q.options.length > 0 ? q.options : undefined),
+            feedback
+          };
+        } else if (qType === 'multiple_select') {
+          return {
+            id: q.id || `q_${Date.now()}_${index}`,
+            type: 'multiple_select' as const,
+            prompt,
+            options: q.options || [],
+            correctAnswers: q.correctAnswers || (q.correctIndices || (q.correctIndex !== undefined ? [q.correctIndex] : [])),
+            feedback
+          };
+        } else {
+          // multiple_choice (default)
+          return {
+            id: q.id || `q_${Date.now()}_${index}`,
+            type: 'multiple_choice' as const,
+            prompt,
+            options: q.options || [],
+            correctAnswer: q.correctAnswer !== undefined ? q.correctAnswer : (q.correctIndex || 0),
+            feedback
+          };
+        }
       });
 
       // Apply randomization if requested
-      if (settings.randomize) {
+      if (settings.randomize || settings.shuffleAnswers) {
         questions.forEach((q: any) => {
-          if (q.type === QuestionType.MultipleChoice && q.options && q.options.length > 1) {
+          if (q.type === 'multiple_choice' && q.options && q.options.length > 1) {
             const combined = q.options.map((opt: string, i: number) => ({ 
               text: opt, 
-              isCorrect: i === q.correctIndex 
+              isCorrect: i === q.correctAnswer 
             }));
             for (let i = combined.length - 1; i > 0; i--) {
               const j = Math.floor(Math.random() * (i + 1));
               [combined[i], combined[j]] = [combined[j], combined[i]];
             }
             q.options = combined.map((c: any) => c.text);
-            q.correctIndex = combined.findIndex((c: any) => c.isCorrect);
+            q.correctAnswer = combined.findIndex((c: any) => c.isCorrect);
+          } else if (q.type === 'multiple_select' && q.options && q.options.length > 1 && q.correctAnswers) {
+            const combined = q.options.map((opt: string, i: number) => ({ 
+              text: opt, 
+              isCorrect: q.correctAnswers.includes(i)
+            }));
+            for (let i = combined.length - 1; i > 0; i--) {
+              const j = Math.floor(Math.random() * (i + 1));
+              [combined[i], combined[j]] = [combined[j], combined[i]];
+            }
+            q.options = combined.map((c: any) => c.text);
+            q.correctAnswers = combined.map((c: any, idx: number) => c.isCorrect ? idx : -1).filter((idx: number) => idx !== -1);
           }
         });
       }
 
       return {
-        title: parsedData.title || settings.topic || "Generated Quiz",
+        title: parsedData.title || settings.title || settings.topic || "Generated Quiz",
+        description: parsedData.description || settings.description,
+        mode: settings.mode || 'quiz', // Default to quiz for backward compatibility
         questions: questions,
         maxAttempts: settings.maxAttempts
       };

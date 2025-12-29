@@ -144,33 +144,57 @@ The app will parse and convert them to Canvas-compatible QTI format.
 4. If AI is unavailable, app falls back to template generation
 5. Review and edit as needed before exporting
 
-## Institutional Deployment
+## Deployment
+
+### Deploy to Vercel (Recommended)
+
+1. **Push to GitHub:**
+   ```bash
+   git init
+   git add .
+   git commit -m "Initial commit"
+   git remote add origin <your-github-repo-url>
+   git push -u origin main
+   ```
+
+2. **Deploy on Vercel:**
+   - Go to [vercel.com](https://vercel.com)
+   - Click "New Project"
+   - Import your GitHub repository
+   - Vercel will auto-detect Vite configuration
+   - Click "Deploy"
+
+3. **Optional: Configure Environment Variables** (if using AI):
+   - In Vercel project settings → Environment Variables
+   - Add `VITE_AI_ENHANCEMENT_ENABLED=true`
+   - Add `VITE_AI_PROVIDER=gemini` (or `local-llm`)
+   - Add `VITE_API_KEY=your_key` (if using Gemini)
+   - Redeploy
+
+The app will be live at `https://your-project.vercel.app`
+
+### Other Deployment Options
 
 This application is designed for institutional use where:
 - External API dependencies may be restricted
 - Data privacy is a concern
 - Offline functionality is required
 
-### Deployment Checklist
-
+**Deployment Checklist:**
 - ✅ **No API keys required** - Core functionality works offline
 - ✅ **Static hosting compatible** - Can be deployed to any static host
 - ✅ **No backend required** - Pure client-side application
 - ✅ **Optional AI** - Configure only if desired
 
-### Recommended Deployment
+**Build for Production:**
+```bash
+npm run build
+```
 
-1. Build the application:
-   ```bash
-   npm run build
-   ```
-
-2. Deploy the `dist/` folder to:
-   - Institutional web server
-   - Static hosting (no server-side config needed)
-   - Intranet/local network
-
-3. (Optional) Configure AI if desired via environment variables
+Deploy the `dist/` folder to:
+- Any static hosting (Netlify, GitHub Pages, etc.)
+- Institutional web server
+- Intranet/local network
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for detailed deployment options.
 

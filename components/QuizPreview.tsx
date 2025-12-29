@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { QuizData, QuestionType } from '../types';
+import { QuizData, QuestionType, Question } from '../types';
 import { Download, CheckCircle, RefreshCcw, FileText, CheckSquare, List, HelpCircle } from 'lucide-react';
 import { createQuizPackage } from '../services/qtiGenerator';
 import ImportInstructions from './ImportInstructions';
@@ -51,21 +51,173 @@ const QuizPreview: React.FC<QuizPreviewProps> = ({ quizData, onReset }) => {
 
   const getIconForType = (type: QuestionType) => {
     switch (type) {
-      case QuestionType.MultipleChoice: return <List className="w-3 h-3" />;
-      case QuestionType.TrueFalse: return <CheckSquare className="w-3 h-3" />;
-      case QuestionType.ShortAnswer: return <HelpCircle className="w-3 h-3" />;
-      case QuestionType.MultipleSelection: return <CheckSquare className="w-3 h-3" />;
+      case 'multiple_choice': return <List className="w-3 h-3" />;
+      case 'true_false': return <CheckSquare className="w-3 h-3" />;
+      case 'short_answer': return <HelpCircle className="w-3 h-3" />;
+      case 'multiple_select': return <CheckSquare className="w-3 h-3" />;
+      case 'essay': return <FileText className="w-3 h-3" />;
       default: return <List className="w-3 h-3" />;
     }
   };
 
   const getLabelForType = (type: QuestionType) => {
     switch (type) {
-      case QuestionType.MultipleChoice: return "Multiple Choice";
-      case QuestionType.TrueFalse: return "True / False";
-      case QuestionType.ShortAnswer: return "Short Answer";
-      case QuestionType.MultipleSelection: return "Multiple Selection";
-      default: return "Question";
+      case 'multiple_choice': return "Opción múltiple";
+      case 'true_false': return "Verdadero / Falso";
+      case 'short_answer': return "Respuesta corta";
+      case 'multiple_select': return "Selección múltiple";
+      case 'essay': return "Respuesta abierta";
+      default: return "Pregunta";
+    }
+  };
+
+  /**
+   * Renders question content based on type
+   * In survey mode, hides correct answer indicators
+   */
+  const isSurveyMode = quizData.mode === 'survey';
+  
+  const renderQuestionContent = (q: Question) => {
+    switch (q.type) {
+      case 'essay':
+        return (
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+            <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Respuesta del estudiante:</p>
+            <textarea
+              readOnly
+              disabled
+              className="w-full h-32 p-3 border border-slate-300 rounded-md bg-white text-slate-600 text-sm resize-none disabled:opacity-75"
+              placeholder="Esta es una pregunta de respuesta abierta. Los estudiantes proporcionarán una respuesta de texto que requiere calificación manual."
+            />
+            <p className="text-xs text-slate-500 mt-2">💡 Esta pregunta requiere calificación manual en Canvas.</p>
+          </div>
+        );
+
+      case 'short_answer':
+        return (
+          <div className="space-y-3">
+            {!isSurveyMode && q.correctAnswer && (
+              <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Respuestas aceptables:</p>
+                <div className="flex flex-wrap gap-2">
+                  {(Array.isArray(q.correctAnswer) ? q.correctAnswer : [q.correctAnswer]).map((ans, idx) => (
+                    <span key={idx} className="inline-flex items-center px-2.5 py-1 rounded-md bg-green-50 border border-green-200 text-green-700 text-sm font-medium">
+                      {String(ans)}
+                      <CheckCircle className="w-3 h-3 ml-1.5 text-green-500" />
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+              <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Respuesta del estudiante:</p>
+              <input
+                type="text"
+                readOnly
+                disabled
+                className="w-full p-2 border border-slate-300 rounded-md bg-white text-slate-600 text-sm disabled:opacity-75"
+                placeholder="Campo de texto para respuesta corta"
+              />
+            </div>
+          </div>
+        );
+
+      case 'multiple_select':
+        if (!q.options || q.options.length === 0) {
+          return <p className="text-sm text-slate-500">No hay opciones definidas</p>;
+        }
+        return (
+          <div className="space-y-2">
+            {q.options.map((opt, oIdx) => {
+              const isCorrect = !isSurveyMode && q.correctAnswers && q.correctAnswers.includes(oIdx);
+              return (
+                <div 
+                  key={oIdx}
+                  className={`
+                    relative p-3 rounded-lg border flex items-center gap-3 text-sm
+                    ${isCorrect ? 'bg-green-50 border-green-200' : 'bg-white border-slate-200'}
+                  `}
+                >
+                  <input
+                    type="checkbox"
+                    checked={false}
+                    disabled
+                    readOnly
+                    className="w-5 h-5 rounded border-2 border-slate-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50"
+                  />
+                  <span className={isCorrect ? 'text-green-800 font-medium' : 'text-slate-600'}>
+                    {opt}
+                  </span>
+                  {isCorrect && <CheckCircle className="w-4 h-4 text-green-500 ml-auto" />}
+                </div>
+              );
+            })}
+          </div>
+        );
+
+      case 'true_false':
+        return (
+          <div className="space-y-2">
+            {['True', 'False'].map((opt, oIdx) => {
+              const isCorrect = !isSurveyMode && ((q.correctAnswer && oIdx === 0) || (!q.correctAnswer && oIdx === 1));
+              return (
+                <div 
+                  key={oIdx}
+                  className={`
+                    relative p-3 rounded-lg border flex items-center gap-3 text-sm
+                    ${isCorrect ? 'bg-green-50 border-green-200' : 'bg-white border-slate-200'}
+                  `}
+                >
+                  <input
+                    type="radio"
+                    checked={false}
+                    disabled
+                    readOnly
+                    className="w-5 h-5 border-slate-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50"
+                  />
+                  <span className={isCorrect ? 'text-green-800 font-medium' : 'text-slate-600'}>
+                    {opt}
+                  </span>
+                  {isCorrect && <CheckCircle className="w-4 h-4 text-green-500 ml-auto" />}
+                </div>
+              );
+            })}
+          </div>
+        );
+
+      case 'multiple_choice':
+      default:
+        if (!q.options || q.options.length === 0) {
+          return <p className="text-sm text-slate-500">No hay opciones definidas</p>;
+        }
+        return (
+          <div className="space-y-2">
+            {q.options.map((opt, oIdx) => {
+              const isCorrect = !isSurveyMode && oIdx === q.correctAnswer;
+              return (
+                <div 
+                  key={oIdx}
+                  className={`
+                    relative p-3 rounded-lg border flex items-center gap-3 text-sm
+                    ${isCorrect ? 'bg-green-50 border-green-200' : 'bg-white border-slate-200'}
+                  `}
+                >
+                  <input
+                    type="radio"
+                    checked={false}
+                    disabled
+                    readOnly
+                    className="w-5 h-5 border-slate-300 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50"
+                  />
+                  <span className={isCorrect ? 'text-green-800 font-medium' : 'text-slate-600'}>
+                    {opt}
+                  </span>
+                  {isCorrect && <CheckCircle className="w-4 h-4 text-green-500 ml-auto" />}
+                </div>
+              );
+            })}
+          </div>
+        );
     }
   };
 
@@ -76,7 +228,18 @@ const QuizPreview: React.FC<QuizPreviewProps> = ({ quizData, onReset }) => {
       {/* Header Actions */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex-1">
-          <h2 className="text-xl font-bold text-slate-800">{quizData.title}</h2>
+          <div className="flex items-center gap-3 mb-2">
+            <h2 className="text-xl font-bold text-slate-800">{quizData.title}</h2>
+            {quizData.mode === 'survey' ? (
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-blue-100 text-blue-800 border border-blue-200">
+                Survey (Ungraded)
+              </span>
+            ) : (
+              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-800 border border-green-200">
+                Quiz (Graded)
+              </span>
+            )}
+          </div>
           <p className="text-slate-500 text-sm mt-1">{quizData.questions.length} Questions Generated</p>
           <div className="mt-2 text-xs text-slate-500 bg-slate-50 border border-slate-200 rounded px-2 py-1 inline-block">
             💡 <strong>Note:</strong> These are editable template questions. Review and customize before exporting to Canvas.
@@ -129,55 +292,12 @@ const QuizPreview: React.FC<QuizPreviewProps> = ({ quizData, onReset }) => {
                     {getLabelForType(q.type)}
                   </span>
                 </div>
-                <h3 className="text-slate-800 font-medium leading-relaxed">{q.stem}</h3>
+                <h3 className="text-slate-800 font-medium leading-relaxed">{q.prompt}</h3>
               </div>
             </div>
             
             <div className="p-4 space-y-2">
-              {q.type === QuestionType.ShortAnswer ? (
-                <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
-                  <p className="text-xs font-semibold text-slate-500 uppercase mb-2">Acceptable Answers:</p>
-                  <div className="flex flex-wrap gap-2">
-                    {q.options.map((ans, idx) => (
-                      <span key={idx} className="inline-flex items-center px-2.5 py-1 rounded-md bg-green-50 border border-green-200 text-green-700 text-sm font-medium">
-                        {ans}
-                        <CheckCircle className="w-3 h-3 ml-1.5 text-green-500" />
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                // Multiple Choice, True/False, and Multiple Selection rendering
-                q.options.map((opt, oIdx) => {
-                  const isCorrect = q.type === QuestionType.MultipleSelection
-                    ? (q.correctIndices && q.correctIndices.includes(oIdx)) || (q.correctIndex === oIdx)
-                    : oIdx === q.correctIndex;
-                  return (
-                    <div 
-                      key={oIdx}
-                      className={`
-                        relative p-3 rounded-lg border flex items-center gap-3 text-sm
-                        ${isCorrect ? 'bg-green-50 border-green-200' : 'bg-white border-slate-200'}
-                      `}
-                    >
-                      <div className={`
-                        w-5 h-5 rounded-full border flex items-center justify-center text-[10px] font-bold
-                        ${isCorrect ? 'border-green-500 text-green-600 bg-white' : 'border-slate-300 text-slate-400'}
-                      `}>
-                        {q.type === QuestionType.MultipleSelection ? (
-                          <CheckSquare className="w-3 h-3" />
-                        ) : (
-                          String.fromCharCode(65 + oIdx)
-                        )}
-                      </div>
-                      <span className={isCorrect ? 'text-green-800 font-medium' : 'text-slate-600'}>
-                        {opt}
-                      </span>
-                      {isCorrect && <CheckCircle className="w-4 h-4 text-green-500 ml-auto" />}
-                    </div>
-                  );
-                })
-              )}
+              {renderQuestionContent(q)}
             </div>
 
             {q.feedback && (
