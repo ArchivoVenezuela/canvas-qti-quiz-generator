@@ -1,6 +1,15 @@
 import React, { useState } from 'react';
 import { QuizSettings, Difficulty, QuestionType } from '../types';
-import { Settings, AlignLeft, Sliders, Type as TypeIcon, CheckSquare, List, HelpCircle, ChevronDown, ChevronUp, ClipboardCopy, Info, FileText } from 'lucide-react';
+import { Settings, AlignLeft, Sliders, Type as TypeIcon, CheckSquare, List, HelpCircle, ChevronDown, ChevronUp, ClipboardCopy, Info, FileText, Plus, Trash2, ClipboardPaste, FormInput } from 'lucide-react';
+
+interface FormQuestion {
+  question: string;
+  optionA: string;
+  optionB: string;
+  optionC: string;
+  optionD: string;
+  correctAnswer: 'A' | 'B' | 'C' | 'D';
+}
 
 interface QuizFormProps {
   onSubmit: (settings: QuizSettings) => void;
@@ -29,8 +38,22 @@ Answer: C`;
  * Handles user input for source text, question parameters, and generation options.
  * Supports multiple question types (multiple choice, true/false, short answer).
  */
+const emptyQuestion = (): FormQuestion => ({
+  question: '', optionA: '', optionB: '', optionC: '', optionD: '', correctAnswer: 'A'
+});
+
+const formQuestionsToText = (questions: FormQuestion[]): string => {
+  return questions
+    .filter(q => q.question.trim())
+    .map(q =>
+      `Question: ${q.question}\nA. ${q.optionA}\nB. ${q.optionB}\nC. ${q.optionC}\nD. ${q.optionD}\nAnswer: ${q.correctAnswer}`
+    ).join('\n\n');
+};
+
 const QuizForm: React.FC<QuizFormProps> = ({ onSubmit, isGenerating }) => {
+  const [inputMode, setInputMode] = useState<'paste' | 'form'>('paste');
   const [sourceText, setSourceText] = useState('');
+  const [formQuestions, setFormQuestions] = useState<FormQuestion[]>([emptyQuestion()]);
   const [questionCount, setQuestionCount] = useState(5);
   const [difficulty, setDifficulty] = useState<Difficulty>(Difficulty.Medium);
   const [language, setLanguage] = useState('English');
@@ -39,8 +62,8 @@ const QuizForm: React.FC<QuizFormProps> = ({ onSubmit, isGenerating }) => {
   const [topic, setTopic] = useState('');
   const [maxAttempts, setMaxAttempts] = useState<number>(1);
   const [showFormatHelp, setShowFormatHelp] = useState(false);
-  const [mode, setMode] = useState<'survey' | 'quiz'>('quiz'); // Default to quiz for backward compatibility
-  
+  const [mode, setMode] = useState<'survey' | 'quiz'>('quiz');
+
   const [selectedTypes, setSelectedTypes] = useState<QuestionType[]>([
     'multiple_choice'
   ]);
@@ -57,18 +80,36 @@ const QuizForm: React.FC<QuizFormProps> = ({ onSubmit, isGenerating }) => {
 
   const handlePasteSample = () => {
     setSourceText(SAMPLE_INPUT);
-    // If the sample has 2 questions, let's adjust the count or leave it to user? 
-    // Usually better to leave it, but we can set the help to visible to show what happened.
     setShowFormatHelp(true);
   };
 
+  const updateFormQuestion = (index: number, field: keyof FormQuestion, value: string) => {
+    setFormQuestions(prev => prev.map((q, i) => i === index ? { ...q, [field]: value } : q));
+  };
+
+  const addFormQuestion = () => {
+    setFormQuestions(prev => [...prev, emptyQuestion()]);
+  };
+
+  const removeFormQuestion = (index: number) => {
+    if (formQuestions.length <= 1) return;
+    setFormQuestions(prev => prev.filter((_, i) => i !== index));
+  };
+
+  const getEffectiveSourceText = (): string => {
+    if (inputMode === 'paste') return sourceText;
+    return formQuestionsToText(formQuestions);
+  };
+
+  const hasFormContent = formQuestions.some(q => q.question.trim());
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Source text is optional - if empty, we'll generate templates
-    
+    const effectiveText = getEffectiveSourceText();
+
     onSubmit({
       mode,
-      sourceText,
+      sourceText: effectiveText,
       questionCount,
       difficulty,
       language,
@@ -96,93 +137,195 @@ const QuizForm: React.FC<QuizFormProps> = ({ onSubmit, isGenerating }) => {
         {/* Source Text Section */}
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-2">
-            <label htmlFor="sourceText" className="block text-sm font-medium text-slate-700">
+            <label className="block text-sm font-medium text-slate-700">
               Source Material
             </label>
+            {inputMode === 'paste' && (
+              <button
+                type="button"
+                onClick={() => setShowFormatHelp(!showFormatHelp)}
+                className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1 transition-colors"
+              >
+                <Info className="w-3.5 h-3.5" />
+                How should I format my questions?
+              </button>
+            )}
+          </div>
+
+          {/* Input Mode Toggle */}
+          <div className="flex rounded-lg border border-slate-300 overflow-hidden">
             <button
               type="button"
-              onClick={() => setShowFormatHelp(!showFormatHelp)}
-              className="text-xs text-indigo-600 hover:text-indigo-800 font-medium flex items-center gap-1 transition-colors"
+              onClick={() => setInputMode('paste')}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+                inputMode === 'paste'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-white text-slate-600 hover:bg-slate-50'
+              }`}
             >
-              <Info className="w-3.5 h-3.5" />
-              ❓ How should I format my questions?
+              <ClipboardPaste className="w-4 h-4" />
+              Paste Questions
+            </button>
+            <button
+              type="button"
+              onClick={() => setInputMode('form')}
+              className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors ${
+                inputMode === 'form'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-white text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <FormInput className="w-4 h-4" />
+              Enter One by One
             </button>
           </div>
 
-          {/* Help Section Accordion */}
-          {showFormatHelp && (
-            <div className="bg-indigo-50/50 rounded-lg border border-indigo-100 p-4 animate-in fade-in slide-in-from-top-2">
-              <div className="flex justify-between items-start mb-3">
-                <h4 className="text-sm font-bold text-indigo-900 flex items-center gap-2">
-                  <ClipboardCopy className="w-4 h-4" />
-                  How to Format Your Questions for Best Results
-                </h4>
-                <button 
-                  type="button" 
-                  onClick={() => setShowFormatHelp(false)}
-                  className="text-indigo-400 hover:text-indigo-600"
-                >
-                  <ChevronUp className="w-4 h-4" />
-                </button>
-              </div>
-              
-              <p className="text-xs text-indigo-800 mb-3 leading-relaxed">
-                <strong>Option 1:</strong> Paste pre-formatted questions in this structure (will be parsed automatically):
-              </p>
-              
-              <ol className="list-decimal list-inside text-xs text-indigo-700 space-y-1 mb-3 pl-1">
-                <li>Start each question with <strong>Question:</strong></li>
-                <li>Write options on new lines (A. B. C. D.)</li>
-                <li>Indicate correct answer with <strong>Answer:</strong></li>
-                <li>Separate blocks with a blank line.</li>
-              </ol>
-              
-              <p className="text-xs text-indigo-800 mb-3 leading-relaxed">
-                <strong>Option 2:</strong> Leave empty to generate template questions you can customize. No API key required!
-              </p>
+          {/* Paste Mode */}
+          {inputMode === 'paste' && (
+            <>
+              {showFormatHelp && (
+                <div className="bg-indigo-50/50 rounded-lg border border-indigo-100 p-4">
+                  <div className="flex justify-between items-start mb-3">
+                    <h4 className="text-sm font-bold text-indigo-900 flex items-center gap-2">
+                      <ClipboardCopy className="w-4 h-4" />
+                      How to Format Your Questions
+                    </h4>
+                    <button
+                      type="button"
+                      onClick={() => setShowFormatHelp(false)}
+                      className="text-indigo-400 hover:text-indigo-600"
+                    >
+                      <ChevronUp className="w-4 h-4" />
+                    </button>
+                  </div>
 
-              <div className="bg-white border border-indigo-100 rounded p-3 text-xs font-mono text-slate-600 mb-3">
-                <div className="opacity-50 mb-1">// Example Format</div>
-                Question: Who painted the murals in the Hospicio Cabañas?<br/>
-                A. Diego Rivera<br/>
-                B. David Alfaro Siqueiros<br/>
-                C. José Clemente Orozco<br/>
-                D. Rufino Tamayo<br/>
-                Answer: C
+                  <ol className="list-decimal list-inside text-xs text-indigo-700 space-y-1 mb-3 pl-1">
+                    <li>Start each question with <strong>Question:</strong></li>
+                    <li>Write options on new lines (A. B. C. D.)</li>
+                    <li>Indicate correct answer with <strong>Answer:</strong></li>
+                    <li>Separate blocks with a blank line.</li>
+                  </ol>
+
+                  <div className="bg-white border border-indigo-100 rounded p-3 text-xs font-mono text-slate-600 mb-3">
+                    <div className="opacity-50 mb-1">// Example Format</div>
+                    Question: Who painted the murals in the Hospicio Cabañas?<br/>
+                    A. Diego Rivera<br/>
+                    B. David Alfaro Siqueiros<br/>
+                    C. José Clemente Orozco<br/>
+                    D. Rufino Tamayo<br/>
+                    Answer: C
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handlePasteSample}
+                    className="text-xs bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-3 py-1.5 rounded-md font-medium transition-colors flex items-center gap-1.5"
+                  >
+                    <ClipboardCopy className="w-3 h-3" />
+                    Paste Sample
+                  </button>
+                </div>
+              )}
+
+              <div className="relative">
+                <textarea
+                  id="sourceText"
+                  value={sourceText}
+                  onChange={(e) => setSourceText(e.target.value)}
+                  placeholder="Paste pre-formatted questions here (Question: ... Answer: C)&#10;&#10;Separate each question block with a blank line."
+                  className="w-full h-48 p-4 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-y text-sm leading-relaxed"
+                />
+                {sourceText.length === 0 && (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="text-slate-400 flex flex-col items-center">
+                      <TypeIcon className="w-8 h-8 mb-2 opacity-50" />
+                      <span className="text-sm">Paste text to begin</span>
+                    </div>
+                  </div>
+                )}
+                <div className="absolute bottom-3 right-3 text-xs text-slate-400 bg-white/80 px-2 py-1 rounded">
+                  {sourceText.length} chars
+                </div>
               </div>
+            </>
+          )}
+
+          {/* Form Mode */}
+          {inputMode === 'form' && (
+            <div className="space-y-4">
+              {formQuestions.map((fq, idx) => (
+                <div key={idx} className="border border-slate-200 rounded-lg p-4 space-y-3 bg-slate-50/50">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                      <span className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs font-bold">
+                        {idx + 1}
+                      </span>
+                      Question {idx + 1}
+                    </span>
+                    {formQuestions.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeFormQuestion(idx)}
+                        className="text-red-400 hover:text-red-600 transition-colors p-1"
+                        title="Remove question"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+
+                  <input
+                    type="text"
+                    value={fq.question}
+                    onChange={(e) => updateFormQuestion(idx, 'question', e.target.value)}
+                    placeholder="Enter your question..."
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:ring-indigo-500 focus:border-indigo-500"
+                  />
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {(['A', 'B', 'C', 'D'] as const).map(letter => (
+                      <div key={letter} className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name={`correct-${idx}`}
+                          checked={fq.correctAnswer === letter}
+                          onChange={() => updateFormQuestion(idx, 'correctAnswer', letter)}
+                          className="w-4 h-4 text-green-600 border-slate-300 focus:ring-green-500"
+                          title={`Mark ${letter} as correct`}
+                        />
+                        <span className="text-xs font-bold text-slate-500 w-4">{letter}.</span>
+                        <input
+                          type="text"
+                          value={fq[`option${letter}` as keyof FormQuestion]}
+                          onChange={(e) => updateFormQuestion(idx, `option${letter}` as keyof FormQuestion, e.target.value)}
+                          placeholder={`Option ${letter}`}
+                          className={`flex-1 px-3 py-1.5 border rounded-md text-sm focus:ring-indigo-500 focus:border-indigo-500 ${
+                            fq.correctAnswer === letter
+                              ? 'border-green-300 bg-green-50'
+                              : 'border-slate-300'
+                          }`}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-slate-400">Select the radio button next to the correct answer.</p>
+                </div>
+              ))}
 
               <button
                 type="button"
-                onClick={handlePasteSample}
-                className="text-xs bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-3 py-1.5 rounded-md font-medium transition-colors flex items-center gap-1.5"
+                onClick={addFormQuestion}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border-2 border-dashed border-slate-300 rounded-lg text-sm font-medium text-slate-500 hover:border-indigo-400 hover:text-indigo-600 transition-colors"
               >
-                <ClipboardCopy className="w-3 h-3" />
-                Paste Sample
+                <Plus className="w-4 h-4" />
+                Add Question
               </button>
+
+              <p className="text-xs text-slate-500 text-center">
+                {formQuestions.filter(q => q.question.trim()).length} question(s) entered
+              </p>
             </div>
           )}
-
-          <div className="relative">
-            <textarea
-              id="sourceText"
-              value={sourceText}
-              onChange={(e) => setSourceText(e.target.value)}
-              placeholder="Option A: Paste pre-formatted questions (Question: ... Answer: C)&#10;Option B: Leave empty to generate template questions you can customize&#10;&#10;No API key required - works offline!"
-              className="w-full h-48 p-4 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 resize-y text-sm leading-relaxed"
-              required={false}
-            />
-            {sourceText.length === 0 && (
-              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                <div className="text-slate-400 flex flex-col items-center">
-                  <TypeIcon className="w-8 h-8 mb-2 opacity-50" />
-                  <span className="text-sm">Paste text to begin</span>
-                </div>
-              </div>
-            )}
-            <div className="absolute bottom-3 right-3 text-xs text-slate-400 bg-white/80 px-2 py-1 rounded">
-              {sourceText.length} chars
-            </div>
-          </div>
         </div>
 
         {/* Settings Grid */}
@@ -410,11 +553,11 @@ const QuizForm: React.FC<QuizFormProps> = ({ onSubmit, isGenerating }) => {
         <div className="pt-4 border-t border-slate-100 flex justify-end">
           <button
             type="submit"
-            disabled={isGenerating || !sourceText.trim()}
+            disabled={isGenerating || (inputMode === 'paste' ? !sourceText.trim() : !hasFormContent)}
             className={`
               px-8 py-3 rounded-lg text-white font-medium shadow-lg transition-all
-              ${isGenerating || !sourceText.trim() 
-                ? 'bg-slate-400 cursor-not-allowed opacity-70' 
+              ${isGenerating || (inputMode === 'paste' ? !sourceText.trim() : !hasFormContent)
+                ? 'bg-slate-400 cursor-not-allowed opacity-70'
                 : 'bg-indigo-600 hover:bg-indigo-700 hover:shadow-indigo-500/30 transform hover:-translate-y-0.5'}
             `}
           >
